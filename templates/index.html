@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>hypvyn</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;background:#0f1117;color:#e6e8ee}
+  .wrap{max-width:960px;margin:0 auto;padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:#8a90a0;font-size:13px;margin-bottom:20px}
+  .card{background:#1a1e29;border:1px solid #2a3040;border-radius:10px;padding:16px;margin-bottom:16px}
+  .filters{display:flex;gap:16px;flex-wrap:wrap;align-items:end}
+  .filters label{display:block;font-size:12px;color:#8a90a0;margin-bottom:4px}
+  select,input[type=number]{background:#0f1117;color:#e6e8ee;border:1px solid #2a3040;border-radius:6px;padding:8px;font-size:14px}
+  .btn{background:#3b82f6;border:0;color:#fff;border-radius:6px;padding:9px 14px;font-size:14px;cursor:pointer}
+  .btn:hover{background:#2f6bd8}
+  .btn.ghost{background:#2a3040}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:#8a90a0;font-weight:500;padding:8px 6px;border-bottom:1px solid #2a3040}
+  td{padding:8px 6px;border-bottom:1px solid #232838;vertical-align:top}
+  a{color:#5aa2ff;text-decoration:none}
+  a:hover{text-decoration:underline}
+  .likes{color:#ffd166;font-weight:600;white-space:nowrap}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;margin-left:6px}
+  .tag.en{background:#1d3a2a;color:#7ee2a8}
+  .tag.hi{background:#3a2a1d;color:#f2c17e}
+  .badge{display:inline-block;background:#3b82f6;color:#fff;font-size:11px;border-radius:10px;padding:2px 8px}
+  .polling{color:#ffd166;font-size:13px}
+  .empty{color:#8a90a0;text-align:center;padding:20px}
+  input[type=text]{background:#0f1117;color:#e6e8ee;border:1px solid #2a3040;border-radius:6px;padding:8px;font-size:14px;width:320px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>hypvyn</h1>
+  <div class="sub">AI/tech reels (English / Hindi) crossing a likes threshold inside a time window — the "1M+ views" proxy.
+    <span class="badge">{{ total }} tracked</span> <span class="badge">{{ checked }} with stats</span>
+    {% if polling %}<span class="polling">⏳ {{ poll_msg }}</span>{% elif poll_msg %}<span class="polling">{{ poll_msg }}</span>{% endif %}
+  </div>
+
+  <div class="card">
+    <form method="post" class="filters">
+      <div>
+        <label>Time window</label>
+        <select name="window">
+          {% for w in windows %}<option value="{{ w }}" {% if w == window %}selected{% endif %}>{{ w }} days</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Min likes</label>
+        <select name="likes">
+          {% for l in like_steps %}<option value="{{ l }}" {% if l == likes %}selected{% endif %}>{{ "{:,}".format(l) }}+</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Language</label>
+        <select name="lang">
+          <option value="all" {% if lang == "all" %}selected{% endif %}>All</option>
+          <option value="en" {% if lang == "en" %}selected{% endif %}>English</option>
+          <option value="hi" {% if lang == "hi" %}selected{% endif %}>Hindi</option>
+        </select>
+      </div>
+      <button class="btn" type="submit" name="action" value="filter">Apply filter</button>
+      <button class="btn ghost" type="submit" name="action" value="poll">↻ Run poll now</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:16px;margin:0 0 10px">🔥 Hits: {{ "{:,}".format(likes) }}+ likes within {{ window }} days</h2>
+    {% if hits %}
+    <table>
+      <tr><th>Likes</th><th>Views</th><th>Posted</th><th>Lang</th><th>Creator</th><th>Reel</th></tr>
+      {% for h in hits %}
+      <tr>
+        <td class="likes">{{ h.likes_raw }}</td>
+        <td>{{ h.views_raw if h.views_raw else "—" }}</td>
+        <td>{{ h.posted }}</td>
+        <td>{% if h.lang == "hi" %}<span class="tag hi">hi</span>{% elif h.lang == "en" %}<span class="tag en">en</span>{% else %}—{% endif %}</td>
+        <td>{{ h.author }}</td>
+        <td><a href="{{ h.url }}" target="_blank">open reel ↗</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<div class="empty">No reels match this filter yet — run a poll, or add reel links below.</div>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:16px;margin:0 0 10px">➕ Add a reel to track</h2>
+    <form method="post">
+      <input type="text" name="link" placeholder="https://www.instagram.com/reel/XXXXX/">
+      <button class="btn ghost" type="submit" name="action" value="add">Track it</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:16px;margin:0 0 10px">📡 Recently tracked reels</h2>
+    {% if recent %}
+    <table>
+      <tr><th>Likes</th><th>Posted</th><th>Creator</th><th>Reel</th></tr>
+      {% for r in recent %}
+      <tr>
+        <td class="likes">{{ r[5] if r[5] else "—" }}</td>
+        <td>{{ (r[6] or "?")[:10] }}</td>
+        <td>{{ r[2] or "?" }}</td>
+        <td><a href="{{ r[1] }}" target="_blank">open ↗</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<div class="empty">Nothing tracked yet.</div>{% endif %}
+    <div class="sub" style="margin-top:10px">💡 Pool too small to filter meaningfully? Paste AI/tech reel links in the box above, or hit "Run poll" — it fires an Apify Instagram scrape (hashtags + your curated creators) and the pool grows every run.</div>
+  </div>
+</div>
+</body>
+</html>
