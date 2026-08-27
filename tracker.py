@@ -17,7 +17,7 @@ Setup (one time):
   3. Save it:  setx APIFY_TOKEN "apify_xxx"   (or put APIFY_TOKEN=... in a .env file here)
 
 Usage:
-  python tracker.py poll [--mock] [--likes 10000] [--window 7|14] [--lang all|en|hi]
+  python tracker.py poll [--mock] [--likes 10000] [--window 7|14] [--lang all|en|hi] [--limit 25] [--since-days 14]
   python tracker.py sync [--mock]        # scrape + upsert + prune (used by webapp)
   python tracker.py seeds [--mock]       # scrape + upsert only, no prune
   python tracker.py list [--window 7] [--likes 10000] [--lang all|en|hi]
@@ -439,7 +439,7 @@ def mock_items(n=35):
 # ---------------------------------------------------------------- cli
 
 def cmd_sync(args):
-    s = sync(mock=args.mock, do_prune=not args.no_prune, limit=args.limit)
+    s = sync(mock=args.mock, do_prune=not args.no_prune, window_days=args.since_days, limit=args.limit)
     if s.get("error"):
         print("✗ " + s["error"])
         return 1
@@ -497,11 +497,14 @@ def main():
         p.add_argument("--mock", action="store_true", help="simulate an Apify dataset (no token/credits)")
         p.add_argument("--no-prune", action="store_true", help="skip pool pruning (sync/seeds only)")
         p.add_argument("--limit", type=int, default=RESULTS_LIMIT, help="cap reels fetched per account profile")
+        p.add_argument("--since-days", type=int, default=MAX_AGE_DAYS, dest="since_days",
+                       help="scrape window in days (default 14)")
         p.add_argument("links", nargs="*")
     p = sub.add_parser("seeds")
     p.add_argument("--mock", action="store_true")
     p.add_argument("--no-prune", action="store_true")
     p.add_argument("--limit", type=int, default=RESULTS_LIMIT)
+    p.add_argument("--since-days", type=int, default=MAX_AGE_DAYS, dest="since_days")
     p = sub.add_parser("add")
     p.add_argument("links", nargs="+")
     args = ap.parse_args()
