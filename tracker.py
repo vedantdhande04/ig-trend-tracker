@@ -186,7 +186,7 @@ def orphan_reels(n=ORPHANS_PER_RUN):
     return [r[0] for r in rows]
 
 
-def build_profile_input(window_days=MAX_AGE_DAYS):
+def build_profile_input(window_days=MAX_AGE_DAYS, limit=RESULTS_LIMIT):
     """Stage-1 input for the main actor: creator profiles + user-added orphan reels.
     (Hashtag URLs don't work here — they return hashtag metadata, not reels.)"""
     urls = [f"https://www.instagram.com/{acc}/" for acc in rotated_profiles()]
@@ -194,7 +194,7 @@ def build_profile_input(window_days=MAX_AGE_DAYS):
     return {
         "directUrls": urls,
         "resultsType": "reels",
-        "resultsLimit": RESULTS_LIMIT,
+        "resultsLimit": limit,
         "onlyPostsNewerThan": f"{window_days} days",
     }
 
@@ -261,7 +261,7 @@ def upsert_items(items):
 
 # ---------------------------------------------------------------- pipeline
 
-def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True):
+def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMIT):
     """Three-stage pipeline. Returns a summary dict (webapp-friendly: {'error': ...} on failure).
 
     Stage 1 — creator profiles:      main actor, reels mode, profile URLs -> full stats directly.
@@ -281,7 +281,7 @@ def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True):
         all_items = mock_items()
         stages["mock"] = len(all_items)
     else:
-        items1 = run_actor(build_profile_input(window_days), token)
+        items1 = run_actor(build_profile_input(window_days, limit), token)
         stages["profiles"] = len(items1)
         cost += len(items1) * PRICE_PER_ITEM
         all_items += items1
@@ -439,7 +439,7 @@ def mock_items(n=35):
 # ---------------------------------------------------------------- cli
 
 def cmd_sync(args):
-    s = sync(mock=args.mock, do_prune=not args.no_prune)
+    s = sync(mock=args.mock, do_prune=not args.no_prune, limit=args.limit)
     if s.get("error"):
         print("✗ " + s["error"])
         return 1
@@ -496,10 +496,12 @@ def main():
         p.add_argument("--lang", default="all", choices=["all", "en", "hi"])
         p.add_argument("--mock", action="store_true", help="simulate an Apify dataset (no token/credits)")
         p.add_argument("--no-prune", action="store_true", help="skip pool pruning (sync/seeds only)")
+        p.add_argument("--limit", type=int, default=RESULTS_LIMIT, help="cap reels fetched per account profile")
         p.add_argument("links", nargs="*")
     p = sub.add_parser("seeds")
     p.add_argument("--mock", action="store_true")
     p.add_argument("--no-prune", action="store_true")
+    p.add_argument("--limit", type=int, default=RESULTS_LIMIT)
     p = sub.add_parser("add")
     p.add_argument("links", nargs="+")
     args = ap.parse_args()
