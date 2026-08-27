@@ -3,7 +3,7 @@
 - [ ] add a requirements.txt with pinned deps
 - [ ] validate APIFY_TOKEN at startup with a clear error message
 - [ ] retry failed Apify runs up to 2 times with backoff
-- [ ] add a --limit flag to cap reels per account
+- [x] add a --limit flag to cap reels per account
 - [ ] export last run results to CSV
 - [ ] dedupe reels across the two scraper stages
 - [ ] show view counts as a bar chart on the dashboard
@@ -13,7 +13,7 @@
 - [ ] sort the dashboard table by views by default
 - [ ] add a "last updated" timestamp to the dashboard
 - [ ] reload accounts.txt without restarting the app
-- [ ] add unit tests for the 14-day filter
+- [x] add unit tests for the 14-day filter
 - [ ] add unit tests for the reel URL enrichment step
 - [ ] guard against empty hashtag feeds
 - [ ] add a search box to the dashboard
@@ -22,11 +22,11 @@
 - [ ] write a SETUP.md section confirming no instagram login is needed
 - [ ] graceful shutdown (SIGINT) for the scraper
 - [ ] store raw Apify JSON behind a debug flag
-- [ ] add a /health endpoint to the Flask app
+- [x] add a /health endpoint to the Flask app
 - [ ] auto-retry when Apify returns 429
 - [ ] split tracker.py into smaller modules
 - [ ] add type hints to the main functions
-- [ ] add a --since-days flag to override the 14-day default
+- [x] add a --since-days flag to override the 14-day default
 - [ ] clean up tracker_v2_backup.py or delete it
 - [ ] show an API credit usage estimate per run
 - [ ] add a --json output mode for the CLI
