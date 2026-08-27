@@ -52,6 +52,15 @@ def index():
                            poll_msg=_polling["msg"])
 
 
+@app.route("/health")
+def health():
+    con = tracker.db()
+    total = con.execute("SELECT COUNT(*) FROM reels").fetchone()[0]
+    active = con.execute("SELECT COUNT(*) FROM reels WHERE status='active'").fetchone()[0]
+    return jsonify({"status": "ok", "reels_total": total, "reels_active": active,
+                    "polling": _polling["active"]})
+
+
 @app.route("/api/hits")
 def api_hits():
     window = int(request.args.get("window", 7))
