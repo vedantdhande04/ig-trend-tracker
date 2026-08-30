@@ -17,10 +17,10 @@ Setup (one time):
   3. Save it:  setx APIFY_TOKEN "apify_xxx"   (or put APIFY_TOKEN=... in a .env file here)
 
 Usage:
-  python tracker.py poll [--mock] [--likes 10000] [--window 7|14] [--lang all|en|hi] [--limit 25] [--since-days 14]
+  python tracker.py poll [--mock] [--likes 10000] [--window 7|14] [--lang all|en|hi] [--limit 25] [--since-days 14] [--csv out.csv]
   python tracker.py sync [--mock]        # scrape + upsert + prune (used by webapp)
   python tracker.py seeds [--mock]       # scrape + upsert only, no prune
-  python tracker.py list [--window 7] [--likes 10000] [--lang all|en|hi]
+  python tracker.py list [--window 7] [--likes 10000] [--lang all|en|hi] [--csv out.csv]
   python tracker.py add https://www.instagram.com/reel/SHORTCODE/
 
 Cost: the actor bills ~$0.0023 per result on the free plan ($2.30/1k).
@@ -460,6 +460,18 @@ def mock_items(n=35):
 
 # ---------------------------------------------------------------- cli
 
+def write_csv(rows, path):
+    """Write the qualifying pool to a CSV file (utf-8-sig so Excel keeps Hindi captions)."""
+    import csv
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=["shortcode", "url", "author", "title", "likes",
+                                          "likes_raw", "views", "views_raw", "posted", "lang"])
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k) for k in w.fieldnames})
+    return len(rows)
+
+
 def cmd_sync(args):
     s = sync(mock=args.mock, do_prune=not args.no_prune, window_days=args.since_days, limit=args.limit)
     if s.get("error"):
@@ -489,6 +501,9 @@ def cmd_poll(args):
     for r in ms:
         v = r["views_raw"] or "—"
         print(f"  {r['likes_raw']:>10} likes | {v:>8} views | {r['posted']} | {r['lang']} | {r['author']} | {r['url']}")
+    if args.csv:
+        n = write_csv(ms, args.csv)
+        print(f"wrote {n} rows to {args.csv}")
     return 0
 
 
@@ -498,6 +513,9 @@ def cmd_list(args):
     for r in ms:
         v = r["views_raw"] or "—"
         print(f"  {r['likes_raw']:>10} likes | {v:>8} views | {r['posted']} | {r['lang']} | {r['author']} | {r['url']}")
+    if args.csv:
+        n = write_csv(ms, args.csv)
+        print(f"wrote {n} rows to {args.csv}")
     return 0
 
 
@@ -516,6 +534,8 @@ def main():
         p.add_argument("--window", type=int, default=7)
         p.add_argument("--likes", type=int, default=10000)
         p.add_argument("--lang", default="all", choices=["all", "en", "hi"])
+        if name in ("poll", "list"):
+            p.add_argument("--csv", metavar="PATH", help="write the matches table to a CSV file")
         p.add_argument("--mock", action="store_true", help="simulate an Apify dataset (no token/credits)")
         p.add_argument("--no-prune", action="store_true", help="skip pool pruning (sync/seeds only)")
         p.add_argument("--limit", type=int, default=RESULTS_LIMIT, help="cap reels fetched per account profile")
