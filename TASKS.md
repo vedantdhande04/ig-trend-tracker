@@ -1,10 +1,10 @@
 # TASKS.md — one small task per line, check off when done
 
-- [ ] add a requirements.txt with pinned deps
-- [ ] validate APIFY_TOKEN at startup with a clear error message
+- [x] add a requirements.txt with pinned deps
+- [x] validate APIFY_TOKEN at startup with a clear error message
 - [ ] retry failed Apify runs up to 2 times with backoff
 - [x] add a --limit flag to cap reels per account
-- [ ] export last run results to CSV
+- [x] export last run results to CSV
 - [ ] dedupe reels across the two scraper stages
 - [ ] show view counts as a bar chart on the dashboard
 - [ ] add a --mock test for the hashtag scraper stage
