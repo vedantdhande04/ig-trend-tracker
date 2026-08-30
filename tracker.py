@@ -106,6 +106,28 @@ def load_token():
     return env_or_dotenv("APIFY_TOKEN")
 
 
+def check_token(token):
+    """Fail fast at startup on a missing/bad APIFY_TOKEN with a clear message.
+
+    Returns an error string to show, or None when the token looks fine (or the
+    check itself couldn't run — network blips shouldn't block the scrape).
+    """
+    if not token:
+        return ("No APIFY_TOKEN found. Create a free Apify account at apify.com, copy the API token, "
+                "then run: setx APIFY_TOKEN \"apify_xxx\" (or put APIFY_TOKEN=... in a .env file here). "
+                "Use --mock to test the pipeline without a token.")
+    try:
+        api("https://api.apify.com/v2/users/me", token=token, timeout=30)
+    except ApifyError as e:
+        if "out of credits" in str(e):
+            return str(e)
+        if "HTTP 401" in str(e) or "HTTP 403" in str(e):
+            return (f"APIFY_TOKEN was rejected by Apify ({e}). "
+                    "Grab a fresh one at apify.com -> Settings -> Integrations -> API token.")
+        return None  # unreachable/timeout etc.: let the run surface real errors
+    return None
+
+
 def api(url, method="GET", body=None, token=None, timeout=120):
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
@@ -512,6 +534,11 @@ def main():
         global MOCK
         MOCK = True
         print("mock mode: using state_mock.db (real DB untouched)")
+    if args.cmd in ("poll", "sync", "seeds") and not getattr(args, "mock", False):
+        err = check_token(load_token())
+        if err:
+            print("✗ " + err)
+            return 1
     if args.cmd == "poll":
         return cmd_poll(args)
     if args.cmd == "sync":
