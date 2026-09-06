@@ -1,6 +1,8 @@
-"""Unit tests for the 14-day pool retention filter (prune + matches).
+"""Unit tests for the 14-day pool retention filter (prune + matches) and the
+reel URL enrichment step (enrichment_urls).
 
-Uses a throwaway temp DB per test — real state.db and state_mock.db are never touched.
+The retention tests use a throwaway temp DB per test — real state.db and
+state_mock.db are never touched.
 Run:  python -m unittest discover -s tests -v
 """
 import datetime
@@ -91,6 +93,41 @@ class FourteenDayFilterTests(unittest.TestCase):
         insert(self.con, "JJJ000", 30000, _posted_on(2))
         tracker.prune(min_likes=5000, window=14)
         self.assertEqual(len(tracker.matches(window_days=7, min_likes=20000)), 1)
+
+
+class EnrichmentUrlTests(unittest.TestCase):
+    """Reel URL enrichment step: shortcode extraction, type filter, dedupe, cap."""
+
+    def test_extracts_shortcode_from_item_field(self):
+        items = [{"type": "Video", "shortCode": "ABC123xyz"}]
+        self.assertEqual(tracker.enrichment_urls(items),
+                         ["https://www.instagram.com/reel/ABC123xyz/"])
+
+    def test_falls_back_to_url_when_shortcode_missing(self):
+        items = [{"type": "Video", "url": "https://www.instagram.com/reel/DEF456qrs/?utm=x"}]
+        self.assertEqual(tracker.enrichment_urls(items),
+                         ["https://www.instagram.com/reel/DEF456qrs/"])
+
+    def test_skips_non_video_items(self):
+        items = [
+            {"type": "Image", "shortCode": "SKIP1"},
+            {"type": "Video", "shortCode": "KEEP1"},
+            {"type": "Sidecar", "shortCode": "SKIP2"},
+        ]
+        self.assertEqual(tracker.enrichment_urls(items),
+                         ["https://www.instagram.com/reel/KEEP1/"])
+
+    def test_dedupes_repeated_shortcodes(self):
+        items = [{"type": "Video", "shortCode": sc} for sc in ("DUP1", "DUP2", "DUP1", "DUP3")]
+        self.assertEqual(len(tracker.enrichment_urls(items)), 3)
+
+    def test_respects_cap(self):
+        items = [{"type": "Video", "shortCode": f"CAP{i:04d}"} for i in range(10)]
+        self.assertEqual(len(tracker.enrichment_urls(items, cap=4)), 4)
+
+    def test_non_instagram_urls_skipped(self):
+        items = [{"type": "Video", "url": "https://example.com/not-instagram"}]
+        self.assertEqual(tracker.enrichment_urls(items), [])
 
 
 if __name__ == "__main__":

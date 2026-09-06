@@ -283,6 +283,22 @@ def upsert_items(items):
 
 # ---------------------------------------------------------------- pipeline
 
+def enrichment_urls(ht_items, cap=MAX_ENRICH):
+    """Reel URLs to send for enrichment from a hashtag-feed item list.
+
+    Keeps Video items only, pulls the shortcode (item field or URL), dedupes
+    (same reel shows up in several hashtags) and caps the batch size.
+    """
+    reel_urls = []
+    for it in ht_items:
+        if it.get("type") and it.get("type") != "Video":
+            continue
+        sc = it.get("shortCode") or shortcode_from_url(it.get("url"))
+        if sc:
+            reel_urls.append(f"https://www.instagram.com/reel/{sc}/")
+    return list(dict.fromkeys(reel_urls))[:cap]
+
+
 def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMIT):
     """Three-stage pipeline. Returns a summary dict (webapp-friendly: {'error': ...} on failure).
 
@@ -316,14 +332,7 @@ def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMI
         stages["hashtag_feed"] = len(ht_items)
         cost += len(ht_items) * HT_PRICE_PER_ITEM
 
-        reel_urls = []
-        for it in ht_items:
-            if it.get("type") and it.get("type") != "Video":
-                continue
-            sc = it.get("shortCode") or shortcode_from_url(it.get("url"))
-            if sc:
-                reel_urls.append(f"https://www.instagram.com/reel/{sc}/")
-        reel_urls = list(dict.fromkeys(reel_urls))[:MAX_ENRICH]  # dedupe (same reel shows up in several hashtags)
+        reel_urls = enrichment_urls(ht_items)
         if reel_urls:
             items3 = run_actor({"directUrls": reel_urls, "resultsType": "reels", "resultsLimit": 1}, token)
             stages["enriched"] = len(items3)
