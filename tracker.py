@@ -17,10 +17,10 @@ Setup (one time):
   3. Save it:  setx APIFY_TOKEN "apify_xxx"   (or put APIFY_TOKEN=... in a .env file here)
 
 Usage:
-  python tracker.py poll [--mock] [--likes 10000] [--window 7|14] [--lang all|en|hi] [--limit 25] [--since-days 14] [--csv out.csv]
+  python tracker.py poll [--mock] [--likes 10000] [--window 7|14] [--lang all|en|hi] [--limit 25] [--since-days 14] [--csv out.csv] [--json]
   python tracker.py sync [--mock]        # scrape + upsert + prune (used by webapp)
   python tracker.py seeds [--mock]       # scrape + upsert only, no prune
-  python tracker.py list [--window 7] [--likes 10000] [--lang all|en|hi] [--csv out.csv]
+  python tracker.py list [--window 7] [--likes 10000] [--lang all|en|hi] [--csv out.csv] [--json]
   python tracker.py add https://www.instagram.com/reel/SHORTCODE/
 
 Cost: the actor bills ~$0.0023 per result on the free plan ($2.30/1k).
@@ -493,6 +493,17 @@ def cmd_sync(args):
 
 
 def cmd_poll(args):
+    if getattr(args, "json", False):
+        s = sync(mock=args.mock, do_prune=not args.no_prune,
+                 window_days=args.since_days, limit=args.limit)
+        if s.get("error"):
+            print("✗ " + s["error"])
+            return 1
+        ms = matches(args.window, args.likes, args.lang)
+        if args.csv:
+            write_csv(ms, args.csv)
+        print(json.dumps({"run": s, "matches": ms}))
+        return 0
     rc = cmd_sync(args)
     if rc:
         return rc
@@ -509,6 +520,11 @@ def cmd_poll(args):
 
 def cmd_list(args):
     ms = matches(args.window, args.likes, args.lang)
+    if getattr(args, "json", False):
+        if args.csv:
+            write_csv(ms, args.csv)
+        print(json.dumps(ms))
+        return 0
     print(f"matches ({args.window}d, {args.likes}+ likes, lang={args.lang}): {len(ms)}")
     for r in ms:
         v = r["views_raw"] or "—"
@@ -529,8 +545,10 @@ def cmd_add(args):
 def main():
     ap = argparse.ArgumentParser(description="IG Trend Tracker v3 (Apify-backed)")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    parsers = {}
     for name in ("poll", "sync", "list"):
         p = sub.add_parser(name)
+        parsers[name] = p
         p.add_argument("--window", type=int, default=7)
         p.add_argument("--likes", type=int, default=10000)
         p.add_argument("--lang", default="all", choices=["all", "en", "hi"])
@@ -542,6 +560,9 @@ def main():
         p.add_argument("--since-days", type=int, default=MAX_AGE_DAYS, dest="since_days",
                        help="scrape window in days (default 14)")
         p.add_argument("links", nargs="*")
+    for name in ("poll", "list"):
+        parsers[name].add_argument("--json", action="store_true",
+                                   help="print matches as JSON (poll also includes the run summary)")
     p = sub.add_parser("seeds")
     p.add_argument("--mock", action="store_true")
     p.add_argument("--no-prune", action="store_true")
@@ -553,7 +574,7 @@ def main():
     if getattr(args, "mock", False) and args.cmd in ("poll", "sync", "seeds"):
         global MOCK
         MOCK = True
-        print("mock mode: using state_mock.db (real DB untouched)")
+        print("mock mode: using state_mock.db (real DB untouched)", file=sys.stderr)
     if args.cmd in ("poll", "sync", "seeds") and not getattr(args, "mock", False):
         err = check_token(load_token())
         if err:
