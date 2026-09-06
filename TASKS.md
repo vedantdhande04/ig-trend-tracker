@@ -11,13 +11,13 @@
 - [ ] handle timeouts on Apify API calls
 - [ ] log run summaries as one structured line the UI can parse
 - [ ] sort the dashboard table by views by default
-- [ ] add a "last updated" timestamp to the dashboard
+- [x] add a "last updated" timestamp to the dashboard
 - [ ] reload accounts.txt without restarting the app
 - [x] add unit tests for the 14-day filter
-- [ ] add unit tests for the reel URL enrichment step
+- [x] add unit tests for the reel URL enrichment step
 - [ ] guard against empty hashtag feeds
 - [ ] add a search box to the dashboard
-- [ ] show per-account totals on the dashboard
+- [x] show per-account totals on the dashboard
 - [ ] add pagination to the dashboard table
 - [ ] write a SETUP.md section confirming no instagram login is needed
 - [ ] graceful shutdown (SIGINT) for the scraper
@@ -27,6 +27,6 @@
 - [ ] split tracker.py into smaller modules
 - [ ] add type hints to the main functions
 - [x] add a --since-days flag to override the 14-day default
-- [ ] clean up tracker_v2_backup.py or delete it
+- [x] clean up tracker_v2_backup.py or delete it
 - [ ] show an API credit usage estimate per run
-- [ ] add a --json output mode for the CLI
+- [x] add a --json output mode for the CLI
