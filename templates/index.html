@@ -66,7 +66,7 @@
   </div>
 
   <div class="card">
-    <h2 style="font-size:16px;margin:0 0 10px">🔥 Hits: {{ "{:,}".format(likes) }}+ likes within {{ window }} days</h2>
+    <h2 style="font-size:16px;margin:0 0 10px">🔥 Hits: {{ "{:,}".format(likes) }}+ likes within {{ window }} days{% if last_updated %}<span style="color:#8a90a0;font-weight:400;font-size:12px"> — last updated {{ last_updated }}</span>{% endif %}</h2>
     {% if hits %}
     <table>
       <tr><th>Likes</th><th>Views</th><th>Posted</th><th>Lang</th><th>Creator</th><th>Reel</th></tr>

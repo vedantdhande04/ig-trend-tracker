@@ -13,6 +13,20 @@ WINDOWS = [7, 14]
 LIKE_STEPS = [1000, 2000, 5000, 10000, 20000, 30000, 50000, 100000, 250000, 500000]
 
 
+def fmt_last_checked(v):
+    """Epoch-seconds string -> 'YYYY-MM-DD HH:MM' local time.
+
+    Legacy rows may already hold a formatted string — pass those through.
+    Returns None for NULL/empty values.
+    """
+    if not v:
+        return None
+    try:
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(float(v)))
+    except (TypeError, ValueError):
+        return v
+
+
 def _do_poll():
     try:
         _polling["msg"] = "running Apify Instagram scrape…"
@@ -44,12 +58,13 @@ def index():
     con = tracker.db()
     total = con.execute("SELECT COUNT(*) FROM reels").fetchone()[0]
     checked = con.execute("SELECT COUNT(*) FROM reels WHERE last_checked IS NOT NULL").fetchone()[0]
+    last_updated = fmt_last_checked(con.execute("SELECT MAX(last_checked) FROM reels").fetchone()[0])
     recent = con.execute(
         "SELECT shortcode,url,author,likes,likes_raw,posted,lang,status FROM reels WHERE status='active' ORDER BY COALESCE(posted,first_seen) DESC LIMIT 60").fetchall()
     return render_template("index.html", hits=hits, recent=recent, total=total, checked=checked,
                            window=window, likes=likes, lang=lang,
                            windows=WINDOWS, like_steps=LIKE_STEPS, polling=_polling["active"],
-                           poll_msg=_polling["msg"])
+                           poll_msg=_polling["msg"], last_updated=last_updated)
 
 
 @app.route("/health")
