@@ -61,10 +61,13 @@ def index():
     last_updated = fmt_last_checked(con.execute("SELECT MAX(last_checked) FROM reels").fetchone()[0])
     recent = con.execute(
         "SELECT shortcode,url,author,likes,likes_raw,posted,lang,status FROM reels WHERE status='active' ORDER BY COALESCE(posted,first_seen) DESC LIMIT 60").fetchall()
+    accts = con.execute(
+        "SELECT author, COUNT(*) FROM reels WHERE status='active' AND author<>'' "
+        "GROUP BY author ORDER BY COUNT(*) DESC, author LIMIT 8").fetchall()
     return render_template("index.html", hits=hits, recent=recent, total=total, checked=checked,
                            window=window, likes=likes, lang=lang,
                            windows=WINDOWS, like_steps=LIKE_STEPS, polling=_polling["active"],
-                           poll_msg=_polling["msg"], last_updated=last_updated)
+                           poll_msg=_polling["msg"], last_updated=last_updated, accts=accts)
 
 
 @app.route("/health")

@@ -94,6 +94,12 @@
 
   <div class="card">
     <h2 style="font-size:16px;margin:0 0 10px">📡 Recently tracked reels</h2>
+    {% if accts %}
+    <div style="margin:0 0 10px">
+      <span style="color:#8a90a0;font-size:12px;margin-right:6px">per account:</span>
+      {% for name, n in accts %}<span class="tag" style="background:#2a3040;color:#cbd2e0;margin-left:0;margin-right:6px">{{ name }} × {{ n }}</span>{% endfor %}
+    </div>
+    {% endif %}
     {% if recent %}
     <table>
       <tr><th>Likes</th><th>Posted</th><th>Creator</th><th>Reel</th></tr>
