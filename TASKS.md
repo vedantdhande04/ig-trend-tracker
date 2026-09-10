@@ -2,15 +2,15 @@
 
 - [x] add a requirements.txt with pinned deps
 - [x] validate APIFY_TOKEN at startup with a clear error message
-- [ ] retry failed Apify runs up to 2 times with backoff
+- [x] retry failed Apify runs up to 2 times with backoff
 - [x] add a --limit flag to cap reels per account
 - [x] export last run results to CSV
-- [ ] dedupe reels across the two scraper stages
+- [x] dedupe reels across the two scraper stages
 - [ ] show view counts as a bar chart on the dashboard
 - [ ] add a --mock test for the hashtag scraper stage
-- [ ] handle timeouts on Apify API calls
+- [x] handle timeouts on Apify API calls
 - [ ] log run summaries as one structured line the UI can parse
-- [ ] sort the dashboard table by views by default
+- [x] sort the dashboard table by views by default
 - [x] add a "last updated" timestamp to the dashboard
 - [ ] reload accounts.txt without restarting the app
 - [x] add unit tests for the 14-day filter
