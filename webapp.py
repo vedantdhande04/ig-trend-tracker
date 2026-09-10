@@ -11,6 +11,18 @@ app.template_folder = os.path.join(BASE, "templates")
 _polling = {"active": False, "msg": ""}
 WINDOWS = [7, 14]
 LIKE_STEPS = [1000, 2000, 5000, 10000, 20000, 30000, 50000, 100000, 250000, 500000]
+SORTS = ("views", "likes", "posted", "creator")
+
+
+def sort_hits(hits, sort="views"):
+    """Order the hits table — views (real reach) by default, likes as tiebreaker."""
+    if sort == "likes":
+        return sorted(hits, key=lambda r: r["likes"] or 0, reverse=True)
+    if sort == "posted":
+        return sorted(hits, key=lambda r: r["posted"] or "", reverse=True)
+    if sort == "creator":
+        return sorted(hits, key=lambda r: (r["author"] or "?").lower())
+    return sorted(hits, key=lambda r: (r["views"] or 0, r["likes"] or 0), reverse=True)
 
 
 def fmt_last_checked(v):
@@ -54,7 +66,10 @@ def index():
     window = int(request.args.get("window", request.form.get("window", 14)))
     likes = int(request.args.get("likes", request.form.get("likes", 5000)))
     lang = request.args.get("lang", request.form.get("lang", "all"))
-    hits = tracker.matches(window, likes, lang)
+    sort = request.args.get("sort", request.form.get("sort", "views"))
+    if sort not in SORTS:
+        sort = "views"
+    hits = sort_hits(tracker.matches(window, likes, lang), sort)
     con = tracker.db()
     total = con.execute("SELECT COUNT(*) FROM reels").fetchone()[0]
     checked = con.execute("SELECT COUNT(*) FROM reels WHERE last_checked IS NOT NULL").fetchone()[0]
@@ -65,7 +80,7 @@ def index():
         "SELECT author, COUNT(*) FROM reels WHERE status='active' AND author<>'' "
         "GROUP BY author ORDER BY COUNT(*) DESC, author LIMIT 8").fetchall()
     return render_template("index.html", hits=hits, recent=recent, total=total, checked=checked,
-                           window=window, likes=likes, lang=lang,
+                           window=window, likes=likes, lang=lang, sort=sort, sorts=SORTS,
                            windows=WINDOWS, like_steps=LIKE_STEPS, polling=_polling["active"],
                            poll_msg=_polling["msg"], last_updated=last_updated, accts=accts)
 

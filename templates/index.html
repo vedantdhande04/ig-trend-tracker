@@ -53,6 +53,12 @@
         </select>
       </div>
       <div>
+        <label>Sort by</label>
+        <select name="sort">
+          {% for s in sorts %}<option value="{{ s }}" {% if s == sort %}selected{% endif %}>{% if s == "views" %}Views{% elif s == "posted" %}Newest{% else %}{{ s|capitalize }}{% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
         <label>Language</label>
         <select name="lang">
           <option value="all" {% if lang == "all" %}selected{% endif %}>All</option>
