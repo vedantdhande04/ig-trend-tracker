@@ -12,6 +12,7 @@ import sqlite3
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import tracker
 
@@ -178,6 +179,59 @@ class RetryTests(unittest.TestCase):
         self.assertTrue(tracker.is_fatal(tracker.ApifyError("Apify API HTTP 401: Invalid token")))
         self.assertTrue(tracker.is_fatal(tracker.ApifyError("Apify API HTTP 403: forbidden")))
         self.assertFalse(tracker.is_fatal(tracker.ApifyError("Apify API unreachable: timed out")))
+
+
+class ApiTimeoutTests(unittest.TestCase):
+    """Timeouts: GETs get one retry, POSTs never do (a retried POST starts a second actor run)."""
+
+    def setUp(self):
+        self._sleep = tracker.time.sleep
+        tracker.time.sleep = lambda s: None
+
+    def tearDown(self):
+        tracker.time.sleep = self._sleep
+
+    def test_get_retries_after_timeout(self):
+        calls = {"n": 0}
+
+        def flaky(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise tracker.ApifyError(tracker.timeout_msg("GET", "https://api.apify.com/v2/actor-runs/1", 120))
+            return {"data": {"status": "RUNNING"}}
+
+        with mock.patch.object(tracker, "api_call", flaky):
+            self.assertEqual(tracker.api("https://api.apify.com/v2/actor-runs/1"), {"data": {"status": "RUNNING"}})
+        self.assertEqual(calls["n"], 2)
+
+    def test_post_timeout_raised_immediately(self):
+        calls = {"n": 0}
+
+        def dead(*a, **k):
+            calls["n"] += 1
+            raise tracker.ApifyError(tracker.timeout_msg("POST", "https://api.apify.com/v2/acts/x/runs", 120))
+
+        with mock.patch.object(tracker, "api_call", dead):
+            with self.assertRaises(tracker.ApifyError):
+                tracker.api("https://api.apify.com/v2/acts/x/runs", method="POST", body={})
+        self.assertEqual(calls["n"], 1)
+
+    def test_non_timeout_error_not_retried(self):
+        calls = {"n": 0}
+
+        def bad(*a, **k):
+            calls["n"] += 1
+            raise tracker.ApifyError("Apify API HTTP 500: boom")
+
+        with mock.patch.object(tracker, "api_call", bad):
+            with self.assertRaises(tracker.ApifyError):
+                tracker.api("https://api.apify.com/v2/actor-runs/1")
+        self.assertEqual(calls["n"], 1)
+
+    def test_timeout_message_names_the_endpoint(self):
+        msg = tracker.timeout_msg("GET", "https://api.apify.com/v2/datasets/abc123/items?clean=true", 180)
+        self.assertIn("180s", msg)
+        self.assertIn("GET datasets/abc123/items", msg)
 
 
 if __name__ == "__main__":

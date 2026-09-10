@@ -27,7 +27,7 @@ Cost: the actor bills ~$0.0023 per result on the free plan ($2.30/1k).
 A default run (~325 reels) is ~$0.75; weekly cadence ~$3/month — inside the $5 free tier.
 Use --mock to test the whole pipeline without an account or credits.
 """
-import argparse, datetime, json, os, re, sqlite3, sys, time, urllib.error, urllib.parse, urllib.request
+import argparse, datetime, json, os, re, socket, sqlite3, sys, time, urllib.error, urllib.parse, urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE, "state.db")
@@ -126,7 +126,31 @@ def check_token(token):
     return None
 
 
-def api(url, method="GET", body=None, token=None, timeout=120):
+def timeout_msg(method, url, timeout):
+    endpoint = url.split("/v2/")[-1].split("?")[0]
+    return (f"Apify API timed out after {timeout}s ({method} {endpoint}). "
+            "Apify is being slow — retrying usually works, otherwise try again in a few minutes.")
+
+
+def api(url, method="GET", body=None, token=None, timeout=120, attempts=2):
+    """One Apify API call, with a timeout retry for read-only requests.
+
+    A GET that times out mid-poll used to abort an entire run, so GETs get one
+    extra try. POSTs are never retried here — the retry wrapper around run_actor
+    handles those, otherwise a slow POST would start the same actor twice.
+    """
+    tries = max(1, attempts) if method == "GET" else 1
+    for i in range(1, tries + 1):
+        try:
+            return api_call(url, method, body, token, timeout)
+        except ApifyError as e:
+            if i == tries or "timed out after" not in str(e):
+                raise
+            print(f"apify api timeout, retrying (try {i}): {url.split('/v2/')[-1][:50]}", file=sys.stderr)
+            time.sleep(2)
+
+
+def api_call(url, method, body, token, timeout):
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Content-Type", "application/json")
@@ -145,7 +169,13 @@ def api(url, method="GET", body=None, token=None, timeout=120):
             raise ApifyError("Apify: out of credits (free tier gives $5/mo). Add funds or wait for the reset. " + msg)
         raise ApifyError(f"Apify API HTTP {e.code}: {msg}")
     except urllib.error.URLError as e:
+        if isinstance(e.reason, (TimeoutError, socket.timeout)):
+            raise ApifyError(timeout_msg(method, url, timeout))
         raise ApifyError(f"Apify API unreachable: {e.reason}")
+    except (TimeoutError, socket.timeout):
+        raise ApifyError(timeout_msg(method, url, timeout))
+    except (ConnectionError, OSError) as e:      # mid-read drops, resets
+        raise ApifyError(f"Apify API connection dropped: {e}")
 
 
 def is_fatal(err):
