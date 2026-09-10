@@ -130,5 +130,55 @@ class EnrichmentUrlTests(unittest.TestCase):
         self.assertEqual(tracker.enrichment_urls(items), [])
 
 
+class RetryTests(unittest.TestCase):
+    """Transient Apify failures get retried with backoff; fatal ones don't."""
+
+    def setUp(self):
+        self._sleep = tracker.time.sleep
+        self._slept = []
+        tracker.time.sleep = lambda s: self._slept.append(s)
+
+    def tearDown(self):
+        tracker.time.sleep = self._sleep
+
+    def test_succeeds_on_third_try(self):
+        calls = {"n": 0}
+
+        def flaky():
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise tracker.ApifyError("Apify run FAILED: actor crashed")
+            return ["ok"]
+
+        self.assertEqual(tracker.with_retries(flaky, attempts=3, base_delay=2), ["ok"])
+        self.assertEqual(calls["n"], 3)
+        self.assertEqual(self._slept, [2, 4])          # backoff doubles
+
+    def test_gives_up_after_attempts(self):
+        def always_fail():
+            raise tracker.ApifyError("Apify run TIMED_OUT: no output")
+
+        with self.assertRaises(tracker.ApifyError):
+            tracker.with_retries(always_fail, attempts=3, base_delay=1)
+        self.assertEqual(self._slept, [1, 2])
+
+    def test_fatal_error_not_retried(self):
+        calls = {"n": 0}
+
+        def out_of_credits():
+            calls["n"] += 1
+            raise tracker.ApifyError("Apify: out of credits (free tier gives $5/mo).")
+
+        with self.assertRaises(tracker.ApifyError):
+            tracker.with_retries(out_of_credits, attempts=3, base_delay=1)
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(self._slept, [])
+
+    def test_bad_token_is_fatal(self):
+        self.assertTrue(tracker.is_fatal(tracker.ApifyError("Apify API HTTP 401: Invalid token")))
+        self.assertTrue(tracker.is_fatal(tracker.ApifyError("Apify API HTTP 403: forbidden")))
+        self.assertFalse(tracker.is_fatal(tracker.ApifyError("Apify API unreachable: timed out")))
+
+
 if __name__ == "__main__":
     unittest.main()

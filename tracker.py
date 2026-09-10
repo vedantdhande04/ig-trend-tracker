@@ -119,10 +119,8 @@ def check_token(token):
     try:
         api("https://api.apify.com/v2/users/me", token=token, timeout=30)
     except ApifyError as e:
-        if "out of credits" in str(e):
-            return str(e)
-        if "HTTP 401" in str(e) or "HTTP 403" in str(e):
-            return (f"APIFY_TOKEN was rejected by Apify ({e}). "
+        if is_fatal(e):
+            return (f"APIFY_TOKEN was rejected or has no credits ({e}). "
                     "Grab a fresh one at apify.com -> Settings -> Integrations -> API token.")
         return None  # unreachable/timeout etc.: let the run surface real errors
     return None
@@ -148,6 +146,41 @@ def api(url, method="GET", body=None, token=None, timeout=120):
         raise ApifyError(f"Apify API HTTP {e.code}: {msg}")
     except urllib.error.URLError as e:
         raise ApifyError(f"Apify API unreachable: {e.reason}")
+
+
+def is_fatal(err):
+    """True when retrying is pointless: bad token or no credits left."""
+    msg = str(err)
+    return "out of credits" in msg or "HTTP 401" in msg or "HTTP 403" in msg
+
+
+def with_retries(fn, attempts=3, base_delay=5, on_retry=None):
+    """Call fn(), retrying transient Apify failures with exponential backoff.
+
+    attempts counts TOTAL tries (1 try + attempts-1 retries). Fatal errors
+    (rejected token, out of credits) go straight through — no backoff for those.
+    """
+    delay = base_delay
+    for i in range(1, attempts + 1):
+        try:
+            return fn()
+        except ApifyError as e:
+            if i == attempts or is_fatal(e):
+                raise
+            if on_retry:
+                on_retry(i, str(e), delay)
+            time.sleep(delay)
+            delay *= 2
+
+
+def run_actor_retry(input_, token, actor_id=ACTOR_ID, attempts=3):
+    """run_actor with up to 2 retries — Apify runs flake out (actor timeouts,
+    dataset hiccups) and a single failure shouldn't kill the whole poll."""
+    return with_retries(
+        lambda: run_actor(input_, token, actor_id),
+        attempts=attempts,
+        on_retry=lambda i, msg, d: print(f"apify run failed (try {i}): {msg} — retrying in {d}s",
+                                         file=sys.stderr))
 
 
 def run_actor(input_, token, actor_id=ACTOR_ID):
@@ -319,14 +352,14 @@ def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMI
         all_items = mock_items()
         stages["mock"] = len(all_items)
     else:
-        items1 = run_actor(build_profile_input(window_days, limit), token)
+        items1 = run_actor_retry(build_profile_input(window_days, limit), token)
         stages["profiles"] = len(items1)
         cost += len(items1) * PRICE_PER_ITEM
         all_items += items1
 
         try:
-            ht_items = run_actor({"hashtags": HASHTAGS, "resultsType": "reels", "resultsLimit": HASHTAG_LIMIT},
-                                 token, actor_id=HT_ACTOR_ID)
+            ht_items = run_actor_retry({"hashtags": HASHTAGS, "resultsType": "reels", "resultsLimit": HASHTAG_LIMIT},
+                                       token, actor_id=HT_ACTOR_ID)
         except ApifyError:
             ht_items = []
         stages["hashtag_feed"] = len(ht_items)
@@ -334,7 +367,7 @@ def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMI
 
         reel_urls = enrichment_urls(ht_items)
         if reel_urls:
-            items3 = run_actor({"directUrls": reel_urls, "resultsType": "reels", "resultsLimit": 1}, token)
+            items3 = run_actor_retry({"directUrls": reel_urls, "resultsType": "reels", "resultsLimit": 1}, token)
             stages["enriched"] = len(items3)
             cost += len(items3) * PRICE_PER_ITEM
             all_items += items3
