@@ -234,5 +234,74 @@ class ApiTimeoutTests(unittest.TestCase):
         self.assertIn("GET datasets/abc123/items", msg)
 
 
+class MergeItemsTests(unittest.TestCase):
+    """Stage 1 (profiles) and stage 3 (enrichment) return the same reels — merge to one row each."""
+
+    def test_same_shortcode_across_stages_merged(self):
+        stage1 = [{"type": "Video", "shortCode": "SAME1", "likesCount": 12000}]
+        stage3 = [{"type": "Video", "shortCode": "SAME1", "likesCount": 12000}]
+        self.assertEqual(len(tracker.merge_items(stage1, stage3)), 1)
+
+    def test_keeps_copy_with_more_stats(self):
+        thin = {"type": "Video", "shortCode": "BEST1", "likesCount": -1}
+        full = {"type": "Video", "shortCode": "BEST1", "likesCount": 8000, "videoViewCount": 300000}
+        self.assertEqual(tracker.merge_items([thin], [full])[0]["likesCount"], 8000)
+        # order of the stages shouldn't matter
+        self.assertEqual(tracker.merge_items([full], [thin])[0]["likesCount"], 8000)
+
+    def test_equal_stats_keeps_first_seen_copy(self):
+        a = {"type": "Video", "shortCode": "EQ1", "likesCount": 9000, "videoPlayCount": 100}
+        b = {"type": "Video", "shortCode": "EQ1", "likesCount": 9000, "videoPlayCount": 100}
+        self.assertIs(tracker.merge_items([a], [b])[0], a)
+
+    def test_url_only_items_merge_too(self):
+        a = {"type": "Video", "url": "https://www.instagram.com/reel/URLONLY1/"}
+        b = {"type": "Video", "url": "https://www.instagram.com/reel/URLONLY1/?x=1", "likesCount": 7000}
+        merged = tracker.merge_items([a], [b])
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["likesCount"], 7000)
+
+    def test_items_without_shortcode_dropped(self):
+        items = [{"type": "Video"}, {"type": "Video", "url": "https://example.com/nope"},
+                 {"type": "Video", "shortCode": "KEEP9"}]
+        merged = tracker.merge_items(items)
+        self.assertEqual([i["shortCode"] for i in merged], ["KEEP9"])
+
+    def test_first_seen_order_preserved(self):
+        merged = tracker.merge_items(
+            [{"type": "Video", "shortCode": sc} for sc in ("A1", "B2")],
+            [{"type": "Video", "shortCode": sc} for sc in ("C3", "A1")])
+        self.assertEqual([i["shortCode"] for i in merged], ["A1", "B2", "C3"])
+
+    def test_handles_empty_stage_lists(self):
+        one = [{"type": "Video", "shortCode": "ONLY1"}]
+        self.assertEqual(len(tracker.merge_items(one, [], None)), 1)
+
+
+class MockSyncTests(unittest.TestCase):
+    """End-to-end mock run against a temp DB: no token, no network, real DB untouched."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._prev_db, self._prev_mock = tracker.DB, tracker.MOCK
+        tracker.DB = os.path.join(self._tmp, "sync.db")
+        tracker.MOCK = False
+
+    def tearDown(self):
+        tracker.DB, tracker.MOCK = self._prev_db, self._prev_mock
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_mock_run_reports_unique_reels(self):
+        s = tracker.sync(mock=True)
+        self.assertNotIn("error", s)
+        self.assertGreater(s["found"], 0)
+        self.assertGreaterEqual(s["skipped"], 1)               # mock injects an Image item
+        self.assertIn("dupes_merged", s["stages"])
+        self.assertEqual(s["found"], s["stages"]["mock"])
+        con = tracker.db()
+        rows = con.execute("SELECT COUNT(*) FROM reels").fetchone()[0]
+        self.assertGreaterEqual(rows, s["new"])
+
+
 if __name__ == "__main__":
     unittest.main()

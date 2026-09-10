@@ -362,6 +362,36 @@ def enrichment_urls(ht_items, cap=MAX_ENRICH):
     return list(dict.fromkeys(reel_urls))[:cap]
 
 
+def stat_score(it):
+    """How much usable data an item carries (0-2) — used to pick the better copy of a reel."""
+    likes = it.get("likesCount")
+    views = it.get("videoViewCount")
+    if views is None:
+        views = it.get("videoPlayCount")
+    return (1 if likes not in (None, -1) else 0) + (1 if views not in (None, -1) else 0)
+
+
+def merge_items(*item_lists):
+    """Merge the scraper stages into one list with a single row per reel.
+
+    The hashtag stage and the profile stage both surface the same reel (it can sit
+    in three hashtags and in a creator's feed), so shortcodes repeat across stages.
+    Keeps the copy with the most stats (likes/views) and preserves first-seen order.
+    """
+    merged, order = {}, []
+    for items in item_lists:
+        for it in items or []:
+            sc = it.get("shortCode") or shortcode_from_url(it.get("url"))
+            if not sc:
+                continue                      # upsert would skip these anyway
+            if sc not in merged:
+                merged[sc] = it
+                order.append(sc)
+            elif stat_score(it) > stat_score(merged[sc]):
+                merged[sc] = it
+    return [merged[sc] for sc in order]
+
+
 def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMIT):
     """Three-stage pipeline. Returns a summary dict (webapp-friendly: {'error': ...} on failure).
 
@@ -379,13 +409,14 @@ def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMI
     stages = {}
     cost = 0.0
     if mock:
-        all_items = mock_items()
+        raw_mock = mock_items()
+        all_items = merge_items(raw_mock)
         stages["mock"] = len(all_items)
+        stages["dupes_merged"] = len(raw_mock) - len(all_items)
     else:
-        items1 = run_actor_retry(build_profile_input(window_days, limit), token)
-        stages["profiles"] = len(items1)
-        cost += len(items1) * PRICE_PER_ITEM
-        all_items += items1
+        prof_items = run_actor_retry(build_profile_input(window_days, limit), token)
+        stages["profiles"] = len(prof_items)
+        cost += len(prof_items) * PRICE_PER_ITEM
 
         try:
             ht_items = run_actor_retry({"hashtags": HASHTAGS, "resultsType": "reels", "resultsLimit": HASHTAG_LIMIT},
@@ -396,13 +427,15 @@ def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMI
         cost += len(ht_items) * HT_PRICE_PER_ITEM
 
         reel_urls = enrichment_urls(ht_items)
+        items3 = []
         if reel_urls:
             items3 = run_actor_retry({"directUrls": reel_urls, "resultsType": "reels", "resultsLimit": 1}, token)
             stages["enriched"] = len(items3)
             cost += len(items3) * PRICE_PER_ITEM
-            all_items += items3
         else:
             stages["enriched"] = 0
+        all_items = merge_items(prof_items, items3)
+        stages["dupes_merged"] = len(prof_items) + len(items3) - len(all_items)
 
     n_new, n_upd, n_skip = upsert_items(all_items)
     kept = dropped = 0
