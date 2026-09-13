@@ -104,5 +104,56 @@ class DashboardSortTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
 
+@unittest.skipIf(webapp is None, "flask not installed")
+class ReloadAccountsTests(unittest.TestCase):
+    """The dashboard re-reads accounts.txt on demand — no app restart needed."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._prev_db, self._prev_accounts = tracker.DB, tracker.ACCOUNTS
+        tracker.DB = os.path.join(self._tmp, "web.db")
+        tracker.ACCOUNTS = os.path.join(self._tmp, "accounts.txt")
+        tracker.db().close()                      # create the schema in the temp DB
+        self._write("# mine\nnewcreator\n")
+        tracker._accounts_cache.update(mtime=None, names=[])
+        webapp.app.config["TESTING"] = True
+        self.client = webapp.app.test_client()
+
+    def tearDown(self):
+        tracker.DB, tracker.ACCOUNTS = self._prev_db, self._prev_accounts
+        tracker._accounts_cache.update(mtime=None, names=[])
+        webapp._reload["msg"] = ""
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _write(self, text):
+        with open(tracker.ACCOUNTS, "w") as f:
+            f.write(text)
+        stamp = time.time() + 10
+        os.utime(tracker.ACCOUNTS, (stamp, stamp))
+
+    def test_reload_button_rendered_with_count(self):
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn('name="action" value="reload_accounts"', html)
+        self.assertIn("1 creators in accounts.txt", html)
+
+    def test_post_reload_reports_the_count(self):
+        html = self.client.post("/", data={"action": "reload_accounts"}).get_data(as_text=True)
+        self.assertIn("reloaded accounts.txt", html)
+        self.assertIn("1 creators in accounts.txt", html)
+
+    def test_file_edit_shows_up_on_next_page_load(self):
+        self._write("# mine\nnewcreator\nsecondcreator\n")
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn("2 creators in accounts.txt", html)
+
+    def test_reload_picks_up_a_new_line_added_after_startup(self):
+        with open(tracker.ACCOUNTS, "a") as f:
+            f.write("added_later\n")
+        stamp = time.time() + 20
+        os.utime(tracker.ACCOUNTS, (stamp, stamp))
+        html = self.client.post("/", data={"action": "reload_accounts"}).get_data(as_text=True)
+        self.assertIn("2 creators in accounts.txt", html)
+
+
 if __name__ == "__main__":
     unittest.main()

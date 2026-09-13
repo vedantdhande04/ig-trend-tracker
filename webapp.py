@@ -9,6 +9,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 app.template_folder = os.path.join(BASE, "templates")
 
 _polling = {"active": False, "msg": ""}
+_reload = {"msg": ""}
 WINDOWS = [7, 14]
 LIKE_STEPS = [1000, 2000, 5000, 10000, 20000, 30000, 50000, 100000, 250000, 500000]
 SORTS = ("views", "likes", "posted", "creator")
@@ -63,6 +64,10 @@ def index():
             threading.Thread(target=_do_poll, daemon=True).start()
         if request.form.get("action") == "add" and request.form.get("link"):
             tracker.add_reel(request.form["link"].strip())
+        if request.form.get("action") == "reload_accounts":
+            accts = tracker.load_accounts(force=True)
+            _reload["msg"] = (f"reloaded accounts.txt — {len(accts)} creators"
+                              if accts else "reloaded accounts.txt — it's empty, no creators to track")
     window = int(request.args.get("window", request.form.get("window", 14)))
     likes = int(request.args.get("likes", request.form.get("likes", 5000)))
     lang = request.args.get("lang", request.form.get("lang", "all"))
@@ -82,7 +87,8 @@ def index():
     return render_template("index.html", hits=hits, recent=recent, total=total, checked=checked,
                            window=window, likes=likes, lang=lang, sort=sort, sorts=SORTS,
                            windows=WINDOWS, like_steps=LIKE_STEPS, polling=_polling["active"],
-                           poll_msg=_polling["msg"], last_updated=last_updated, accts=accts)
+                           poll_msg=_polling["msg"], last_updated=last_updated, accts=accts,
+                           account_count=len(tracker.load_accounts()), reload_msg=_reload["msg"])
 
 
 @app.route("/health")

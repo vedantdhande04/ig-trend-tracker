@@ -369,6 +369,56 @@ class EmptyHashtagFeedTests(unittest.TestCase):
         self.assertFalse(s["stages"]["hashtag_empty"])
 
 
+class AccountsCacheTests(unittest.TestCase):
+    """accounts.txt is cached by mtime, so edits show up without restarting the app."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._prev_accounts = tracker.ACCOUNTS
+        tracker.ACCOUNTS = os.path.join(self._tmp, "accounts.txt")
+        tracker._accounts_cache.update(mtime=None, names=[])
+        self._clock = time.time() + 10
+
+    def tearDown(self):
+        tracker.ACCOUNTS = self._prev_accounts
+        tracker._accounts_cache.update(mtime=None, names=[])
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def write(self, text):
+        with open(tracker.ACCOUNTS, "w") as f:
+            f.write(text)
+        self._clock += 5                       # bump mtime so the cache can't miss the edit
+        os.utime(tracker.ACCOUNTS, (self._clock, self._clock))
+
+    def test_comments_and_blanks_skipped(self):
+        self.write("# a comment\n\ncreator1\ncreator2\n")
+        self.assertEqual(tracker.load_accounts(), ["creator1", "creator2"])
+
+    def test_new_account_picked_up_without_restart(self):
+        self.write("creator1\n")
+        self.assertEqual(tracker.load_accounts(), ["creator1"])
+        self.write("creator1\ncreator2\n")
+        self.assertEqual(tracker.load_accounts(), ["creator1", "creator2"])
+
+    def test_force_reload_ignores_the_cache(self):
+        self.write("creator1\n")
+        tracker.load_accounts()
+        self.write("creator2\n")
+        self.assertEqual(tracker.load_accounts(force=True), ["creator2"])
+
+    def test_missing_file_returns_empty_list(self):
+        self.assertEqual(tracker.load_accounts(), [])
+
+    def test_callers_cannot_mutate_the_cache(self):
+        self.write("creator1\n")
+        tracker.load_accounts().append("sneaky")
+        self.assertEqual(tracker.load_accounts(), ["creator1"])
+
+    def test_rotated_profiles_reads_the_file(self):
+        self.write("creator1\ncreator2\n")
+        self.assertEqual(len(tracker.rotated_profiles(n=2)), 2)
+
+
 class MergeItemsTests(unittest.TestCase):
     """Stage 1 (profiles) and stage 3 (enrichment) return the same reels — merge to one row each."""
 

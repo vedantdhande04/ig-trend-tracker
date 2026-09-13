@@ -100,6 +100,10 @@
 
   <div class="card">
     <h2 style="font-size:16px;margin:0 0 10px">📡 Recently tracked reels</h2>
+    <form method="post" style="margin:0 0 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <button class="btn ghost" type="submit" name="action" value="reload_accounts">↻ Reload accounts.txt</button>
+      <span class="sub" style="margin:0">{{ account_count }} creators in accounts.txt{% if reload_msg %} — {{ reload_msg }}{% endif %}</span>
+    </form>
     {% if accts %}
     <div style="margin:0 0 10px">
       <span style="color:#8a90a0;font-size:12px;margin-right:6px">per account:</span>

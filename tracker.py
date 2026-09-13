@@ -286,12 +286,28 @@ def run_actor(input_, token, actor_id=ACTOR_ID):
 
 # ---------------------------------------------------------------- input building
 
-def load_accounts():
+_accounts_cache = {"mtime": None, "names": []}
+
+
+def load_accounts(force=False):
+    """accounts.txt contents, cached until the file itself changes.
+
+    The mtime is checked on every call, so editing accounts.txt (or a webapp
+    "reload" click, force=True) picks up new creators without restarting the app.
+    """
     try:
-        with open(ACCOUNTS) as f:
-            return [l.strip() for l in f if l.strip() and not l.startswith("#")]
-    except FileNotFoundError:
+        mtime = os.path.getmtime(ACCOUNTS)
+    except OSError:                     # missing file: nothing to track
+        _accounts_cache.update(mtime=None, names=[])
         return []
+    if force or _accounts_cache["mtime"] != mtime:
+        try:
+            with open(ACCOUNTS) as f:
+                names = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+        except OSError:
+            names = []
+        _accounts_cache.update(mtime=mtime, names=names)
+    return list(_accounts_cache["names"])
 
 
 def rotated_profiles(n=PROFILES_PER_RUN):
