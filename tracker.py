@@ -390,16 +390,30 @@ def enrichment_urls(ht_items, cap=MAX_ENRICH):
     """Reel URLs to send for enrichment from a hashtag-feed item list.
 
     Keeps Video items only, pulls the shortcode (item field or URL), dedupes
-    (same reel shows up in several hashtags) and caps the batch size.
+    (same reel shows up in several hashtags) and caps the batch size. An empty
+    feed (or None) just means nothing to enrich.
     """
     reel_urls = []
-    for it in ht_items:
+    for it in ht_items or []:
         if it.get("type") and it.get("type") != "Video":
             continue
         sc = it.get("shortCode") or shortcode_from_url(it.get("url"))
         if sc:
             reel_urls.append(f"https://www.instagram.com/reel/{sc}/")
     return list(dict.fromkeys(reel_urls))[:cap]
+
+
+def warn_empty_hashtag_feed(items):
+    """True (and a note on stderr) when a hashtag feed came back with nothing.
+
+    A 0-item feed isn't fatal — the profile stage still works — but it silently
+    costs a discovery stage and reads as "no trends today", so say it out loud.
+    """
+    if items:
+        return False
+    print("hashtag feed came back empty — skipping enrichment (the tag feeds are probably blocked; "
+          "profile scrape still ran)", file=sys.stderr)
+    return True
 
 
 def stat_score(it):
@@ -465,6 +479,7 @@ def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMI
             ht_items = []
         stages["hashtag_feed"] = len(ht_items)
         cost += len(ht_items) * HT_PRICE_PER_ITEM
+        stages["hashtag_empty"] = warn_empty_hashtag_feed(ht_items)
 
         reel_urls = enrichment_urls(ht_items)
         items3 = []
@@ -483,6 +498,7 @@ def sync(mock=False, window_days=MAX_AGE_DAYS, do_prune=True, limit=RESULTS_LIMI
     if do_prune:
         kept, dropped, new_q = prune(min_likes=MIN_LIKES)
     stages.setdefault("enriched", 0)
+    stages.setdefault("hashtag_empty", False)
     return {
         "found": len(all_items), "new": n_new, "updated": n_upd, "skipped": n_skip,
         "kept": kept, "dropped": dropped, "new_qualifiers": new_q,
@@ -625,6 +641,8 @@ def cmd_sync(args):
     print(f"Apify scrape: {s['found']} reels fetched ({s['new']} new, {s['updated']} updated, "
           f"{s['skipped']} skipped) in {s['seconds']}s — est. ${s['cost_usd']} "
           f"(stages: {json.dumps(s['stages'])})")
+    if s["stages"].get("hashtag_empty"):
+        print("note: hashtag discovery returned nothing this run — only the accounts.txt creators were checked")
     if args.no_prune:
         print("pool: (prune skipped)")
     else:

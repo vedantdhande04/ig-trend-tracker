@@ -319,6 +319,56 @@ class RateLimitTests(unittest.TestCase):
             self.assertIn("rate limit", str(ctx.exception))
 
 
+class EmptyHashtagFeedTests(unittest.TestCase):
+    """A hashtag feed that returns nothing must not blow up the run or look like 'no trends'."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._prev_db, self._prev_mock = tracker.DB, tracker.MOCK
+        tracker.DB = os.path.join(self._tmp, "ht.db")
+        tracker.MOCK = False
+
+    def tearDown(self):
+        tracker.DB, tracker.MOCK = self._prev_db, self._prev_mock
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_enrichment_urls_accepts_none(self):
+        self.assertEqual(tracker.enrichment_urls(None), [])
+
+    def test_warn_only_for_empty_feed(self):
+        import contextlib
+        import io
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertTrue(tracker.warn_empty_hashtag_feed([]))
+            self.assertFalse(tracker.warn_empty_hashtag_feed([{"type": "Video", "shortCode": "X1"}]))
+        self.assertIn("hashtag feed came back empty", err.getvalue())
+
+    def test_empty_feed_skips_the_enrichment_stage(self):
+        prof = [{"type": "Video", "shortCode": "PROF1", "likesCount": 9000, "videoPlayCount": 200000}]
+        seen = []
+
+        def fake_run(input_, token, actor_id=tracker.ACTOR_ID, attempts=3):
+            seen.append(actor_id)
+            return prof if actor_id == tracker.ACTOR_ID else []
+
+        with mock.patch.object(tracker, "load_token", lambda: "apify_test"), \
+             mock.patch.object(tracker, "run_actor_retry", fake_run):
+            s = tracker.sync(do_prune=False)
+
+        self.assertNotIn("error", s)
+        self.assertTrue(s["stages"]["hashtag_empty"])
+        self.assertEqual(s["stages"]["hashtag_feed"], 0)
+        self.assertEqual(s["stages"]["enriched"], 0)
+        self.assertEqual(seen, [tracker.ACTOR_ID, tracker.HT_ACTOR_ID])   # no third (enrichment) call
+        self.assertEqual(s["new"], 1)
+
+    def test_mock_run_reports_the_flag(self):
+        s = tracker.sync(mock=True)
+        self.assertFalse(s["stages"]["hashtag_empty"])
+
+
 class MergeItemsTests(unittest.TestCase):
     """Stage 1 (profiles) and stage 3 (enrichment) return the same reels — merge to one row each."""
 
