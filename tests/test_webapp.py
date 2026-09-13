@@ -155,5 +155,95 @@ class ReloadAccountsTests(unittest.TestCase):
         self.assertIn("2 creators in accounts.txt", html)
 
 
+@unittest.skipIf(webapp is None, "flask not installed")
+class SearchHitsTests(unittest.TestCase):
+    """Dashboard search box: case-insensitive filter over creator / caption / shortcode."""
+
+    def setUp(self):
+        self.rows = [
+            {"shortcode": "AIHINDI1", "url": "https://www.instagram.com/reel/AIHINDI1/",
+             "author": "aiwithdivyam", "title": "ये AI टूल हर किसी को चाहिए", "likes": 30000,
+             "likes_raw": "30K", "views": 500000, "views_raw": "500K", "posted": "2026-09-05", "lang": "hi"},
+            {"shortcode": "CHATGPT9", "url": "https://www.instagram.com/reel/CHATGPT9/",
+             "author": "techguy", "title": "ChatGPT vs Gemini", "likes": 20000,
+             "likes_raw": "20K", "views": 200000, "views_raw": "200K", "posted": "2026-09-04", "lang": "en"},
+        ]
+
+    def codes(self, q):
+        return [r["shortcode"] for r in webapp.search_hits(self.rows, q)]
+
+    def test_blank_query_returns_everything(self):
+        self.assertEqual(self.codes(""), self.codes("   "))
+        self.assertEqual(len(self.codes("")), 2)
+
+    def test_matches_creator_case_insensitively(self):
+        self.assertEqual(self.codes("TECHGUY"), ["CHATGPT9"])
+
+    def test_matches_caption_keyword(self):
+        self.assertEqual(self.codes("gemini"), ["CHATGPT9"])
+
+    def test_matches_shortcode_and_url(self):
+        self.assertEqual(self.codes("aihindi"), ["AIHINDI1"])
+
+    def test_no_match_returns_empty(self):
+        self.assertEqual(self.codes("zzz-nothing"), [])
+
+    def test_none_filters_are_safe(self):
+        self.assertEqual(len(webapp.search_hits(self.rows, None)), 2)
+
+
+@unittest.skipIf(webapp is None, "flask not installed")
+class DashboardSearchTests(unittest.TestCase):
+    """The rendered page honors ?q= and keeps the box populated."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._prev_db = tracker.DB
+        tracker.DB = os.path.join(self._tmp, "web.db")
+        con = tracker.db()
+        now = time.strftime("%Y-%m-%d %H:%M")
+        for sc, author, likes in (("FIRSTONE", "alpha_creator", 40000), ("SECONDONE", "beta_creator", 30000)):
+            con.execute(
+                "INSERT INTO reels(shortcode,url,author,title,likes,likes_raw,views,posted,lang,desc,"
+                "first_seen,last_checked,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'active')",
+                (sc, f"https://www.instagram.com/reel/{sc}/", author, f"{author} reel", likes, str(likes),
+                 500000, "2026-09-05T00:00:00.000Z", "en", "desc", now, now))
+        con.commit()
+        con.close()
+        webapp.app.config["TESTING"] = True
+        self.client = webapp.app.test_client()
+
+    def tearDown(self):
+        tracker.DB = self._prev_db
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def hits_table(self, query):
+        html = self.client.get(query).get_data(as_text=True)
+        return html.split("🔥 Hits:")[1].split("➕ Add a reel")[0]
+
+    def test_search_box_is_rendered(self):
+        html = self.client.get("/?window=14&likes=5000").get_data(as_text=True)
+        self.assertIn('name="q"', html)
+
+    def test_query_filters_the_table(self):
+        table = self.hits_table("/?window=14&likes=5000&q=beta")
+        self.assertIn("reel/SECONDONE/", table)
+        self.assertNotIn("reel/FIRSTONE/", table)
+
+    def test_query_is_kept_in_the_box(self):
+        html = self.client.get("/?window=14&likes=5000&q=beta").get_data(as_text=True)
+        self.assertIn('value="beta"', html)
+        self.assertIn("matching “beta”", html)
+
+    def test_no_match_shows_a_clear_link(self):
+        table = self.hits_table("/?window=14&likes=5000&q=nothinghere")
+        self.assertIn("clear the search", table)
+
+    def test_blank_query_shows_everything(self):
+        table = self.hits_table("/?window=14&likes=5000&q=")
+        self.assertIn("reel/FIRSTONE/", table)
+        self.assertIn("reel/SECONDONE/", table)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -26,6 +26,19 @@ def sort_hits(hits, sort="views"):
     return sorted(hits, key=lambda r: (r["views"] or 0, r["likes"] or 0), reverse=True)
 
 
+def search_hits(hits, q):
+    """Case-insensitive substring filter over creator, caption and shortcode.
+
+    Used by the dashboard search box so you can narrow the hits table down to a
+    creator or a keyword without re-running a poll. Blank/whitespace query = no filter.
+    """
+    needle = (q or "").strip().lower()
+    if not needle:
+        return hits
+    fields = ("author", "title", "shortcode", "url")
+    return [h for h in hits if needle in " ".join(str(h.get(k) or "") for k in fields).lower()]
+
+
 def fmt_last_checked(v):
     """Epoch-seconds string -> 'YYYY-MM-DD HH:MM' local time.
 
@@ -74,7 +87,9 @@ def index():
     sort = request.args.get("sort", request.form.get("sort", "views"))
     if sort not in SORTS:
         sort = "views"
-    hits = sort_hits(tracker.matches(window, likes, lang), sort)
+    q = request.args.get("q", request.form.get("q", ""))
+    hits = search_hits(tracker.matches(window, likes, lang), q)
+    hits = sort_hits(hits, sort)
     con = tracker.db()
     total = con.execute("SELECT COUNT(*) FROM reels").fetchone()[0]
     checked = con.execute("SELECT COUNT(*) FROM reels WHERE last_checked IS NOT NULL").fetchone()[0]
@@ -88,7 +103,8 @@ def index():
                            window=window, likes=likes, lang=lang, sort=sort, sorts=SORTS,
                            windows=WINDOWS, like_steps=LIKE_STEPS, polling=_polling["active"],
                            poll_msg=_polling["msg"], last_updated=last_updated, accts=accts,
-                           account_count=len(tracker.load_accounts()), reload_msg=_reload["msg"])
+                           account_count=len(tracker.load_accounts()), reload_msg=_reload["msg"],
+                           q=q, shown=len(hits))
 
 
 @app.route("/health")
@@ -105,7 +121,8 @@ def api_hits():
     window = int(request.args.get("window", 7))
     likes = int(request.args.get("likes", 20000))
     lang = request.args.get("lang", "all")
-    return jsonify(tracker.matches(window, likes, lang))
+    recs = tracker.matches(window, likes, lang)
+    return jsonify(search_hits(recs, request.args.get("q", "")))
 
 
 if __name__ == "__main__":

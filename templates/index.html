@@ -66,13 +66,18 @@
           <option value="hi" {% if lang == "hi" %}selected{% endif %}>Hindi</option>
         </select>
       </div>
+      <div>
+        <label>Search</label>
+        <input type="text" name="q" value="{{ q }}" placeholder="creator or keyword…" style="width:200px">
+      </div>
       <button class="btn" type="submit" name="action" value="filter">Apply filter</button>
       <button class="btn ghost" type="submit" name="action" value="poll">↻ Run poll now</button>
+      {% if q %}<a href="?window={{ window }}&likes={{ likes }}&lang={{ lang }}&sort={{ sort }}" style="font-size:13px;align-self:center">clear search</a>{% endif %}
     </form>
   </div>
 
   <div class="card">
-    <h2 style="font-size:16px;margin:0 0 10px">🔥 Hits: {{ "{:,}".format(likes) }}+ likes within {{ window }} days{% if last_updated %}<span style="color:#8a90a0;font-weight:400;font-size:12px"> — last updated {{ last_updated }}</span>{% endif %}</h2>
+    <h2 style="font-size:16px;margin:0 0 10px">🔥 Hits: {{ "{:,}".format(likes) }}+ likes within {{ window }} days{% if q %} matching “{{ q }}” ({{ shown }} shown){% endif %}{% if last_updated %}<span style="color:#8a90a0;font-weight:400;font-size:12px"> — last updated {{ last_updated }}</span>{% endif %}</h2>
     {% if hits %}
     <table>
       <tr><th>Likes</th><th>Views</th><th>Posted</th><th>Lang</th><th>Creator</th><th>Reel</th></tr>
@@ -87,7 +92,7 @@
       </tr>
       {% endfor %}
     </table>
-    {% else %}<div class="empty">No reels match this filter yet — run a poll, or add reel links below.</div>{% endif %}
+    {% else %}<div class="empty">{% if q %}nothing matching “{{ q }}” in this filter — <a href="?window={{ window }}&likes={{ likes }}&lang={{ lang }}&sort={{ sort }}">clear the search</a>{% else %}No reels match this filter yet — run a poll, or add reel links below.{% endif %}</div>{% endif %}
   </div>
 
   <div class="card">
