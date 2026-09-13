@@ -234,6 +234,91 @@ class ApiTimeoutTests(unittest.TestCase):
         self.assertIn("GET datasets/abc123/items", msg)
 
 
+class RateLimitTests(unittest.TestCase):
+    """429s: retried (GET inline, POST via with_retries) and the Retry-After wait is honored."""
+
+    def setUp(self):
+        self._sleep = tracker.time.sleep
+        self._slept = []
+        tracker.time.sleep = lambda s: self._slept.append(s)
+
+    def tearDown(self):
+        tracker.time.sleep = self._sleep
+
+    def test_get_retries_after_429(self):
+        calls = {"n": 0}
+
+        def flaky(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise tracker.ApifyError("Apify API rate limited (HTTP 429)", code=429, retry_after=7)
+            return {"data": {"status": "SUCCEEDED"}}
+
+        with mock.patch.object(tracker, "api_call", flaky):
+            self.assertEqual(tracker.api("https://api.apify.com/v2/actor-runs/1"), {"data": {"status": "SUCCEEDED"}})
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(self._slept, [7])               # used Retry-After, not the 2s default
+
+    def test_post_429_not_retried_inline(self):
+        calls = {"n": 0}
+
+        def limited(*a, **k):
+            calls["n"] += 1
+            raise tracker.ApifyError("Apify API rate limited (HTTP 429)", code=429, retry_after=3)
+
+        with mock.patch.object(tracker, "api_call", limited):
+            with self.assertRaises(tracker.ApifyError):
+                tracker.api("https://api.apify.com/v2/acts/x/runs", method="POST", body={})
+        self.assertEqual(calls["n"], 1)                  # no double actor run
+
+    def test_429_is_not_fatal(self):
+        self.assertFalse(tracker.is_fatal(tracker.ApifyError("Apify API rate limited (HTTP 429)", code=429)))
+
+    def test_run_retry_waits_retry_after(self):
+        calls = {"n": 0}
+
+        def limited():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise tracker.ApifyError("Apify API rate limited (HTTP 429)", code=429, retry_after=12)
+            return ["ok"]
+
+        self.assertEqual(tracker.with_retries(limited, attempts=2, base_delay=5), ["ok"])
+        self.assertEqual(self._slept, [12])              # 12 > base 5
+
+    def test_non_429_http_error_not_retried_inline(self):
+        calls = {"n": 0}
+
+        def boom(*a, **k):
+            calls["n"] += 1
+            raise tracker.ApifyError("Apify API HTTP 500: boom", code=500)
+
+        with mock.patch.object(tracker, "api_call", boom):
+            with self.assertRaises(tracker.ApifyError):
+                tracker.api("https://api.apify.com/v2/actor-runs/1")
+        self.assertEqual(calls["n"], 1)
+
+    def test_retry_after_header_parsed_and_clipped(self):
+        import email.message
+        import io
+        import urllib.error
+
+        def http_error(retry_after):
+            hdrs = email.message.Message()
+            if retry_after is not None:
+                hdrs["Retry-After"] = retry_after
+            return urllib.error.HTTPError("https://api.apify.com/v2/acts/x/runs", 429, "Too Many Requests",
+                                          hdrs, io.BytesIO(b'{"error":{"message":"rate limit"}}'))
+
+        for header, expected in (("9", 9), ("0", 1), ("600", 60), (None, None), ("garbage", None)):
+            with mock.patch.object(tracker.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(http_error(header))):
+                with self.assertRaises(tracker.ApifyError) as ctx:
+                    tracker.api_call("https://api.apify.com/v2/acts/x/runs", "POST", {}, "tok", 30)
+            self.assertEqual(ctx.exception.code, 429)
+            self.assertEqual(ctx.exception.retry_after, expected, f"Retry-After: {header!r}")
+            self.assertIn("rate limit", str(ctx.exception))
+
+
 class MergeItemsTests(unittest.TestCase):
     """Stage 1 (profiles) and stage 3 (enrichment) return the same reels — merge to one row each."""
 

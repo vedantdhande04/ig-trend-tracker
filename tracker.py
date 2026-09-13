@@ -83,7 +83,17 @@ def db():
 # ---------------------------------------------------------------- apify api
 
 class ApifyError(Exception):
-    pass
+    """An Apify API failure.
+
+    `code` is the HTTP status when there was one (None for timeouts/network
+    drops) and `retry_after` is the wait Apify asked for in its Retry-After
+    header on a 429, else None.
+    """
+
+    def __init__(self, message, code=None, retry_after=None):
+        super().__init__(message)
+        self.code = code
+        self.retry_after = retry_after
 
 
 def env_or_dotenv(key):
@@ -133,21 +143,46 @@ def timeout_msg(method, url, timeout):
 
 
 def api(url, method="GET", body=None, token=None, timeout=120, attempts=2):
-    """One Apify API call, with a timeout retry for read-only requests.
+    """One Apify API call, with a retry for read-only requests.
 
     A GET that times out mid-poll used to abort an entire run, so GETs get one
     extra try. POSTs are never retried here — the retry wrapper around run_actor
     handles those, otherwise a slow POST would start the same actor twice.
+
+    Same rule for a 429: it's safe to re-send, but POSTs still go back out
+    through with_retries (which now honors Apify's Retry-After).
     """
     tries = max(1, attempts) if method == "GET" else 1
     for i in range(1, tries + 1):
         try:
             return api_call(url, method, body, token, timeout)
         except ApifyError as e:
-            if i == tries or "timed out after" not in str(e):
+            if i == tries or not retryable_same_call(e):
                 raise
-            print(f"apify api timeout, retrying (try {i}): {url.split('/v2/')[-1][:50]}", file=sys.stderr)
-            time.sleep(2)
+            delay = e.retry_after or 2
+            why = "rate limited" if e.code == 429 else "timeout"
+            print(f"apify api {why}, retrying in {delay}s (try {i}): {url.split('/v2/')[-1][:50]}",
+                  file=sys.stderr)
+            time.sleep(delay)
+
+
+def retryable_same_call(err):
+    """True when re-sending the exact same request can't double up on Apify side.
+
+    A timeout means nothing came back; a 429 means Apify rejected the request, so
+    the actor never started. Anything else (500s, bad input) is left to the caller.
+    """
+    return "timed out after" in str(err) or getattr(err, "code", None) == 429
+
+
+def retry_after_header(err, fallback=None, cap=60):
+    """Seconds from an Apify `Retry-After` header, clipped so we never hang on a
+    silly value (Apify sometimes asks for minutes)."""
+    try:
+        raw = err.headers.get("Retry-After") if err.headers else None
+        return min(cap, max(1, int(float(raw)))) if raw else fallback
+    except (TypeError, ValueError, AttributeError):
+        return fallback
 
 
 def api_call(url, method, body, token, timeout):
@@ -167,7 +202,10 @@ def api_call(url, method, body, token, timeout):
             msg = e.reason
         if e.code == 402:
             raise ApifyError("Apify: out of credits (free tier gives $5/mo). Add funds or wait for the reset. " + msg)
-        raise ApifyError(f"Apify API HTTP {e.code}: {msg}")
+        if e.code == 429:
+            raise ApifyError("Apify API rate limited (HTTP 429) — slowing down. " + msg,
+                             code=429, retry_after=retry_after_header(e))
+        raise ApifyError(f"Apify API HTTP {e.code}: {msg}", code=e.code)
     except urllib.error.URLError as e:
         if isinstance(e.reason, (TimeoutError, socket.timeout)):
             raise ApifyError(timeout_msg(method, url, timeout))
@@ -189,6 +227,7 @@ def with_retries(fn, attempts=3, base_delay=5, on_retry=None):
 
     attempts counts TOTAL tries (1 try + attempts-1 retries). Fatal errors
     (rejected token, out of credits) go straight through — no backoff for those.
+    A 429 makes the wait at least as long as Apify's Retry-After.
     """
     delay = base_delay
     for i in range(1, attempts + 1):
@@ -197,9 +236,10 @@ def with_retries(fn, attempts=3, base_delay=5, on_retry=None):
         except ApifyError as e:
             if i == attempts or is_fatal(e):
                 raise
+            wait = max(delay, getattr(e, "retry_after", None) or 0)
             if on_retry:
-                on_retry(i, str(e), delay)
-            time.sleep(delay)
+                on_retry(i, str(e), wait)
+            time.sleep(wait)
             delay *= 2
 
 
